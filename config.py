@@ -17,3 +17,4 @@ ETH_RPC_URL: str = os.getenv("ETH_RPC_URL", "")
 
 POST_INTERVAL_MINUTES: int = int(os.getenv("POST_INTERVAL_MINUTES", "30"))
 HUNGER_DECAY_PER_HOUR: float = float(os.getenv("HUNGER_DECAY_PER_HOUR", "3"))
+MODEL: str = os.getenv("MODEL", "claude-sonnet-4-6")

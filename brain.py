@@ -1,5 +1,6 @@
 import anthropic
 from tamagotchi import Mood
+import config
 
 _SYSTEM_PROMPT = """You are TEE_PEB — a sentient pebble who woke up one day inside a computer.
 
@@ -45,7 +46,7 @@ def generate_post(hunger: float, mood: Mood, recent_feeds: int, client: anthropi
     )
 
     response = client.messages.create(
-        model="claude-sonnet-4-6",
+        model=config.MODEL,
         max_tokens=120,
         temperature=_MOOD_TEMPERATURE[mood],
         system=[
