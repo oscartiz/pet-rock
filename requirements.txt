@@ -1,0 +1,6 @@
+anthropic>=0.40.0
+atproto>=0.0.55
+web3>=7.0.0
+eth-account>=0.13.0
+apscheduler>=3.10.0
+python-dotenv>=1.0.0
