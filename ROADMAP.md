@@ -43,6 +43,104 @@ Beyond just parsing feed signals, let the pet actively reply to interesting ment
 
 ---
 
+## Fly.io Deployment (Haiku 4.5 — ~$9/year)
+
+Target setup: Fly.io free tier + `claude-haiku-4-5`. Total estimated annual cost ~$9 (API only; hosting is free). The free tier includes 3 shared-cpu-1x 256 MB VMs — enough to run the always-on scheduler loop with headroom.
+
+### fly.toml
+
+```toml
+app = "tee-peb"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  POST_INTERVAL_MINUTES = "30"
+  HUNGER_DECAY_PER_HOUR = "3"
+  MODEL = "claude-haiku-4-5"
+
+[mounts]
+  source = "petrock_data"
+  destination = "/data"
+
+[[services]]
+  internal_port = 8080   # only needed if web dashboard is added later
+  protocol = "tcp"
+
+  [[services.tcp_checks]]
+    grace_period = "5s"
+    interval = "30s"
+    restart_limit = 3
+    timeout = "5s"
+```
+
+### Dockerfile
+
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+ENV DB_PATH=/data/petrock.db
+
+CMD ["python", "main.py"]
+```
+
+`DB_PATH` must be read in `db.py` (currently hardcoded) so SQLite is written to the persistent Fly volume at `/data` rather than the ephemeral container filesystem.
+
+### Secrets (set once via CLI, never committed)
+
+```bash
+fly secrets set \
+  ANTHROPIC_API_KEY=... \
+  BLUESKY_IDENTIFIER=... \
+  BLUESKY_APP_PASSWORD=... \
+  ETH_PRIVATE_KEY=... \
+  ETH_RPC_URL=...
+```
+
+### Persistent volume
+
+```bash
+fly volumes create petrock_data --region iad --size 1   # 1 GB, free tier
+```
+
+The SQLite database, feed log, and post log all live here. Without this volume the DB resets on every deploy/restart.
+
+### Deploy
+
+```bash
+fly launch          # first time — generates app + links volume
+fly deploy          # subsequent deploys
+fly logs            # tail live logs
+```
+
+### Code changes required before deploying
+
+1. **`db.py`** — replace the hardcoded `petrock.db` path with `os.getenv("DB_PATH", "petrock.db")` so the volume path is respected.
+2. **`brain.py`** — remove `cache_control: {"type": "ephemeral"}` from the system prompt dict. The ephemeral cache TTL is 5 minutes; posts fire every 30 minutes, so every call pays the cache-write premium with zero cache-read savings (~$3/year wasted on Sonnet, less on Haiku but still dead cost).
+3. **`config.py`** — `MODEL` default is already read from env, so switching to Haiku only requires setting the `MODEL` env var in `fly.toml` (already shown above).
+
+### Cost ceiling
+
+| Item | Annual |
+|---|---|
+| Anthropic `claude-haiku-4-5` (17,520 calls @ ~310 in / ~60 out tokens) | ~$9 |
+| Fly.io (free tier, 1 shared VM + 1 GB volume) | $0 |
+| ETH RPC — Alchemy or Infura free tier (< 3K req/month) | $0 |
+| Bluesky | $0 |
+| **Total** | **~$9/year** |
+
+Fly's free tier terms could change. Hetzner CX11 (~$50/year) is the fallback — the same Dockerfile and secrets work unchanged, just swap `fly deploy` for `docker compose up -d` behind a systemd service.
+
+---
+
 ## Infrastructure
 
 ### Web dashboard
