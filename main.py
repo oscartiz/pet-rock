@@ -3,12 +3,15 @@ TEE_PEB — autonomous pet rock agent.
 
 Usage:
     python main.py
+    python main.py --dry-run     # generate one post locally and print it
 
 On first run with no ETH_PRIVATE_KEY set, a wallet is generated and the
 private key is printed. Copy it into your .env before restarting.
 """
 
+import argparse
 import logging
+import os
 import signal
 import sys
 import time
@@ -60,13 +63,33 @@ def job_check_mentions():
     fed_count = 0
     for mention in mentions:
         state, accepted = tama.try_social_feed(state, mention.actor_did, mention.text)
-        if accepted:
-            fed_count += 1
-            logger.info("Social feed accepted from %s (+%.0f hunger)", mention.actor_did, tama.SOCIAL_HUNGER_GAIN)
+        if not accepted:
+            continue
+        fed_count += 1
+        logger.info("Social feed accepted from %s (+%.0f hunger)", mention.actor_did, tama.SOCIAL_HUNGER_GAIN)
+        # Reply to the feeder with a thank-you in the post-feed mood.
+        _try_reply_to_feeder(mention, state)
 
     if fed_count:
         tama.save(state)
         logger.info("Processed %d social feed(s). Hunger now: %.1f", fed_count, state.hunger)
+
+
+def _try_reply_to_feeder(mention: "bsky.MentionFeed", state: "tama.State") -> None:
+    if _bsky_client is None or _anthropic_client is None:
+        return
+    mood = tama.get_mood(state)
+    try:
+        import brain
+        text = brain.generate_reply(state.hunger, mood, mention.text, _anthropic_client)
+    except Exception:
+        logger.exception("Brain failed to generate reply for %s", mention.actor_did)
+        return
+    try:
+        uri = bsky.reply(_bsky_client, text, mention)
+        logger.info("Replied to %s [%s]: %s  →  %s", mention.actor_did, mood, text[:60], uri)
+    except Exception:
+        logger.exception("Failed to send reply to %s", mention.actor_did)
 
 
 def job_check_eth():
@@ -124,17 +147,35 @@ def brain_generate(hunger: float, mood, recent_feeds: int) -> str:
 
 def _setup_wallet() -> str:
     key = config.ETH_PRIVATE_KEY
+    key_path = db.DB_PATH.parent / "wallet.key"
+
+    if not key and key_path.exists():
+        # Persisted wallet on disk (e.g. Fly volume). Reuse instead of
+        # regenerating — prevents orphaning any ETH already sent.
+        key = key_path.read_text().strip()
+        logger.info("Loaded ETH private key from %s", key_path)
+
     if not key:
         key, address = wallet.generate_wallet()
+        key_path.parent.mkdir(parents=True, exist_ok=True)
+        key_path.write_text(key)
+        try:
+            os.chmod(key_path, 0o600)
+        except OSError:
+            pass
         print("\n" + "=" * 60)
         print("NEW ETHEREUM WALLET GENERATED")
         print(f"  Address:     {address}")
         print(f"  Private key: {key}")
-        print("\nAdd this to your .env as ETH_PRIVATE_KEY and restart.")
+        print(f"\nKey saved to {key_path} (mode 600).")
+        print("On hosts with a persistent volume (e.g. Fly /data), this file")
+        print("will be auto-loaded on the next start. Otherwise, copy the key")
+        print("into your .env as ETH_PRIVATE_KEY before restarting — the agent")
+        print("refuses to continue here so it cannot orphan ETH by generating")
+        print("a fresh wallet on the next run.")
         print("=" * 60 + "\n")
-        # Save address only; private key must be user-managed
         db.set_state("eth_address", address)
-        return key  # run this session without persistence — will regenerate on restart
+        sys.exit(0)
 
     address = wallet.get_address(key)
     db.set_state("eth_address", address)
@@ -142,8 +183,41 @@ def _setup_wallet() -> str:
     return key
 
 
+def _run_dry_run() -> None:
+    """Generate one post locally and print it. No Bluesky, no wallet, no posting."""
+    db.init()
+    client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+
+    if db.get_state("hunger") is None:
+        tama.save(tama.State(hunger=80.0, last_decay_ts=int(time.time())))
+
+    state = tama.load()
+    mood = tama.get_mood(state)
+    recent = db.recent_feed_count(3600)
+
+    import brain
+    text = brain.generate_post(state.hunger, mood, recent, client)
+
+    print(f"\n[hunger={state.hunger:.0f}  mood={mood}  recent_feeds={recent}]")
+    print("-" * 60)
+    print(text)
+    print("-" * 60 + "\n")
+
+
 def main():
     global _anthropic_client, _bsky_client, _eth_private_key
+
+    parser = argparse.ArgumentParser(prog="tee_peb")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Generate and print one post without connecting to Bluesky or posting.",
+    )
+    args = parser.parse_args()
+
+    if args.dry_run:
+        _run_dry_run()
+        return
 
     db.init()
 
@@ -182,8 +256,9 @@ def main():
     job_agent_post()
 
     def _shutdown(_sig, _frame):
-        logger.info("Shutting down …")
-        scheduler.shutdown(wait=False)
+        logger.info("Shutting down — waiting for in-flight jobs (up to 30s) …")
+        scheduler.shutdown(wait=True)
+        logger.info("Scheduler stopped.")
         sys.exit(0)
 
     signal.signal(signal.SIGINT, _shutdown)

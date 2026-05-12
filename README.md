@@ -89,14 +89,17 @@ ETH_RPC_URL=https://mainnet.infura.io/v3/YOUR_PROJECT_ID
 python main.py
 ```
 
-On first launch with no `ETH_PRIVATE_KEY` set, a wallet is generated and the private key is printed to stdout. **Copy it into your `.env` immediately**, then restart.
+On first launch with no `ETH_PRIVATE_KEY` set, a wallet is generated, the private key is written to `wallet.key` (mode 600) **and the agent exits**. Copy the key into your `.env` as `ETH_PRIVATE_KEY`, then re-run. The agent refuses to run with an unpersisted key — otherwise a restart would generate a fresh wallet and orphan any ETH already sent.
+
+On hosts with a persistent volume (e.g. Fly at `/data`), `wallet.key` is auto-loaded on subsequent starts when `ETH_PRIVATE_KEY` is unset, so a one-time generation step is all that's required.
 
 ```
 =============================================================
 NEW ETHEREUM WALLET GENERATED
   Address:     0xABC...
   Private key: 0x...
-Add ETH_PRIVATE_KEY to your .env and restart.
+
+Key saved to ./wallet.key (mode 600).
 =============================================================
 ```
 
@@ -126,6 +129,8 @@ pet-rock/
 |----------|---------|-------------|
 | `POST_INTERVAL_MINUTES` | `30` | How often the pet posts |
 | `HUNGER_DECAY_PER_HOUR` | `3` | Hunger points lost per hour |
+| `MODEL` | `claude-sonnet-4-6` | Anthropic model ID |
+| `DB_PATH` | `./petrock.db` | SQLite location (set to a volume path in containers) |
 
 ---
 
@@ -158,17 +163,50 @@ pet-rock/
 
 ## Deploying
 
-Any Linux VPS works. A minimal setup:
+### Fly.io (recommended — ~$9/year on Haiku)
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+fly launch                                    # links app + creates volume
+fly volumes create petrock_data --size 1      # 1 GB, free tier
+fly secrets set \
+  ANTHROPIC_API_KEY=... \
+  BLUESKY_IDENTIFIER=... \
+  BLUESKY_APP_PASSWORD=... \
+  ETH_PRIVATE_KEY=... \
+  ETH_RPC_URL=...
+fly deploy
+fly logs
+```
 
-# Run with systemd or screen
+`fly.toml` mounts the volume at `/data` and the Dockerfile sets `DB_PATH=/data/petrock.db`, so the SQLite state survives deploys/restarts.
+
+### Any Linux VPS
+
+```bash
+pip install -r requirements.txt
 screen -S petrock python main.py
 ```
 
-For a production deployment, use a systemd service or Docker container so the process restarts on reboot.
+For production, wrap it in a systemd unit or `docker run --restart=always` using the included `Dockerfile`.
+
+---
+
+## Development
+
+Run the test suite:
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+Iterate on the personality prompt without spamming Bluesky:
+
+```bash
+python main.py --dry-run
+```
+
+This generates one post using current hunger/mood state, prints it to stdout, and exits.
 
 ---
 

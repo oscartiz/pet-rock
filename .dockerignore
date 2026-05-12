@@ -1,12 +1,10 @@
 .env
 *.db
 *.key
-wallet.key
 __pycache__/
 *.pyc
 .venv/
 venv/
-*.egg-info/
-dist/
-build/
+.git/
+.gitignore
 .DS_Store

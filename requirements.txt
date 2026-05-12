@@ -4,3 +4,4 @@ web3>=7.0.0
 eth-account>=0.13.0
 apscheduler>=3.10.0
 python-dotenv>=1.0.0
+grapheme>=0.6.0

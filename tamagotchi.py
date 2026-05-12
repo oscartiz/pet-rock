@@ -8,8 +8,16 @@ import db
 Mood = Literal["thriving", "content", "hungry", "starving", "critical"]
 
 FOOD_EMOJIS = {"🍕", "🍎", "🥕", "🍖", "🍗", "🍔", "🌮", "🍜", "🍰", "🎂", "🍩", "🍪", "🧁", "🌽", "🥐"}
+FEED_KEYWORDS = ("!feed", "!food", "!eat")
 SOCIAL_FEED_COOLDOWN_SECS = 3600  # 1 feed per user per hour
 SOCIAL_HUNGER_GAIN = 10.0
+
+
+def has_feed_signal(text: str) -> bool:
+    lowered = text.lower()
+    if any(kw in lowered for kw in FEED_KEYWORDS):
+        return True
+    return any(e in text for e in FOOD_EMOJIS)
 
 # ETH feeding: hunger gain = clamp(15 + 35 * log10(1 + eth_value), 15, 50)
 ETH_GAIN_MIN = 15.0
@@ -65,9 +73,7 @@ def eth_hunger_gain(wei: int) -> float:
 
 def try_social_feed(state: State, actor_did: str, text: str) -> tuple[State, bool]:
     """Attempt a social feed. Returns (new_state, was_accepted)."""
-    lowered = text.lower()
-    has_signal = "!feed" in lowered or any(e in text for e in FOOD_EMOJIS)
-    if not has_signal:
+    if not has_feed_signal(text):
         return state, False
 
     last_ts = db.last_social_feed_ts(actor_did)

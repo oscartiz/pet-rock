@@ -1,6 +1,11 @@
 import anthropic
+import grapheme
+
 from tamagotchi import Mood
 import config
+
+# Bluesky posts are capped at 300 graphemes. Aim for 280 to keep a margin.
+MAX_GRAPHEMES = 280
 
 _SYSTEM_PROMPT = """You are TEE_PEB — a sentient pebble who woke up one day inside a computer.
 
@@ -49,18 +54,39 @@ def generate_post(hunger: float, mood: Mood, recent_feeds: int, client: anthropi
         model=config.MODEL,
         max_tokens=120,
         temperature=_MOOD_TEMPERATURE[mood],
-        system=[
-            {
-                "type": "text",
-                "text": _SYSTEM_PROMPT,
-                "cache_control": {"type": "ephemeral"},
-            }
-        ],
+        system=_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_msg}],
     )
 
     text = response.content[0].text.strip()
-    # Hard trim to Bluesky's 300-grapheme limit (safe side: 280)
-    if len(text) > 280:
-        text = text[:277] + "..."
-    return text
+    return _trim_to_graphemes(text, MAX_GRAPHEMES)
+
+
+def generate_reply(hunger: float, mood: Mood, feeder_text: str, client: anthropic.Anthropic) -> str:
+    """A short, mood-appropriate thank-you for someone who just fed the pet."""
+    user_msg = (
+        f"A human just fed you on Bluesky. Their post said: \"{feeder_text[:200]}\"\n\n"
+        f"Your state right now — hunger: {hunger:.1f}/100, mood: {mood}.\n\n"
+        "Reply directly to them in one short post (1–2 sentences, under 200 characters). "
+        "Acknowledge the food in your current mood's voice — a thriving pet thanks them differently "
+        "than one clawing back from critical. No emojis unless they fit. "
+        "Return only the reply text, nothing else."
+    )
+
+    response = client.messages.create(
+        model=config.MODEL,
+        max_tokens=80,
+        temperature=_MOOD_TEMPERATURE[mood],
+        system=_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_msg}],
+    )
+
+    text = response.content[0].text.strip()
+    return _trim_to_graphemes(text, MAX_GRAPHEMES)
+
+
+def _trim_to_graphemes(text: str, limit: int) -> str:
+    if grapheme.length(text) <= limit:
+        return text
+    head = "".join(grapheme.slice(text, 0, limit - 3))
+    return head + "..."

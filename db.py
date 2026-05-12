@@ -1,9 +1,11 @@
+import os
 import sqlite3
 import time
 from contextlib import contextmanager
 from pathlib import Path
+from typing import overload
 
-DB_PATH = Path(__file__).parent / "petrock.db"
+DB_PATH = Path(os.getenv("DB_PATH", str(Path(__file__).parent / "petrock.db")))
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS state (
@@ -40,11 +42,16 @@ def _conn():
         con.close()
 
 def init():
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     with _conn() as con:
         con.executescript(_SCHEMA)
 
 # --- state ---
 
+@overload
+def get_state(key: str) -> str | None: ...
+@overload
+def get_state(key: str, default: str) -> str: ...
 def get_state(key: str, default: str | None = None) -> str | None:
     with _conn() as con:
         row = con.execute("SELECT value FROM state WHERE key=?", (key,)).fetchone()

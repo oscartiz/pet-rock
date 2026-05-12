@@ -1,0 +1,20 @@
+app = "tee-peb"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  POST_INTERVAL_MINUTES = "30"
+  HUNGER_DECAY_PER_HOUR = "3"
+  MODEL = "claude-haiku-4-5"
+  DB_PATH = "/data/petrock.db"
+
+[[mounts]]
+  source = "petrock_data"
+  destination = "/data"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 256

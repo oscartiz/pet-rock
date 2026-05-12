@@ -56,9 +56,11 @@ def check_incoming(private_key: str, rpc_url: str) -> list[IncomingTx]:
 
     results: list[IncomingTx] = []
 
-    # Scan at most 50 blocks per call to avoid timeout
+    # Per-cycle cap. Mainnet produces ~300 blocks/hour; with a 15-min poll that's
+    # ~75 new blocks per call. 500 gives ~6× headroom so any backlog (after a
+    # restart or RPC outage) drains within a few cycles instead of forever.
     from_block = last_block + 1
-    to_block = min(latest, from_block + 49)
+    to_block = min(latest, from_block + 499)
 
     for block_num in range(from_block, to_block + 1):
         try:
