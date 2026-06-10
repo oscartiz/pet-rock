@@ -1,5 +1,7 @@
 # TEE_PEB — Autonomous Pet Rock Agent
 
+[![CI](https://github.com/oscartiz/pet-rock/actions/workflows/ci.yml/badge.svg)](https://github.com/oscartiz/pet-rock/actions/workflows/ci.yml)
+
 A sentient rock that lives on Bluesky, manages its own Ethereum wallet, and needs to be fed.
 
 Inspired by the [Nous Research TEE_HEE experiment](https://nousresearch.com/setting-your-pet-rock-free) — an autonomous AI agent with exclusive control over its own social account and crypto wallet. This implementation adds a **Tamagotchi layer**: the pet has a hunger stat that decays over time, and users must feed it to keep it alive and happy.
